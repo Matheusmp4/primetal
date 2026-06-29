@@ -117,6 +117,14 @@
   }
   .opt.selected::before{ content:"✓"; color:var(--gold-deep); font-weight:700 }
 
+  /* VSL */
+  .screen--vsl{ text-align:center }
+  .vsl__player{
+    max-width:min(340px, 88vw); margin:0 auto 22px;
+  }
+  .vsl__player video{ display:block; width:100%; height:auto; aspect-ratio:9/16; background:#000; pointer-events:none }
+  .cta:disabled{ opacity:.42; cursor:not-allowed; transform:none; filter:none; box-shadow:0 10px 24px rgba(154,115,39,.16); pointer-events:none }
+
   /* loader */
   .screen--loader, .screen--done{ text-align:center }
   .loader-ring{ position:relative; width:92px; height:92px; margin:0 auto 24px; display:grid; place-items:center }
@@ -231,6 +239,18 @@ src="https://www.facebook.com/tr?id=1828429301469089&ev=PageView&noscript=1"/></
     </div>
   </section>
 
+  <!-- Tela: VSL (após pergunta 7) -->
+  <section class="screen screen--vsl" aria-live="polite">
+    <div class="wrap">
+      <div class="vsl__player">
+        <video id="vslVideo" playsinline preload="auto" disablepictureinpicture src="vsl.mp4">
+          Seu navegador não suporta a reprodução de vídeo.
+        </video>
+      </div>
+      <button class="cta" id="vslContinue" type="button" disabled>Continuar para a última pergunta →</button>
+    </div>
+  </section>
+
   <!-- Tela: analisando -->
   <section class="screen screen--loader" aria-live="polite">
     <div class="wrap">
@@ -292,6 +312,7 @@ src="https://www.facebook.com/tr?id=1828429301469089&ev=PageView&noscript=1"/></
       opts:["Sim, estou pronto!","Sim, quero começar agora"] }
   ];
   var TOTAL = QUESTIONS.length;
+  var VSL_AFTER_STEP = 6; // após a pergunta 7 (índice 6)
 
   var mount = d.getElementById('qmount');
   var bar = d.getElementById('progressBar');
@@ -301,11 +322,17 @@ src="https://www.facebook.com/tr?id=1828429301469089&ev=PageView&noscript=1"/></
   var progressEl = d.getElementById('progress');
   var screens = {
     quiz: d.querySelector('.screen--quiz'),
+    vsl: d.querySelector('.screen--vsl'),
     loader: d.querySelector('.screen--loader'),
     done: d.querySelector('.screen--done')
   };
 
   var step = 0;       // índice da pergunta atual (0..7)
+  var showingVsl = false;
+  var vslWatched = false;
+  var maxVslTime = 0;
+  var vslUnlockTimer = null;
+  var VSL_UNLOCK_MS = 10000;
   var locked = false; // evita cliques duplos durante o avanço
 
   function setProgress(pct, label){
@@ -347,9 +374,63 @@ src="https://www.facebook.com/tr?id=1828429301469089&ev=PageView&noscript=1"/></
     e.currentTarget.classList.add('selected');
     setTimeout(function(){
       locked = false;
-      if (step < TOTAL - 1){ step++; renderQuestion(step); }
+      if (step < VSL_AFTER_STEP){ step++; renderQuestion(step); }
+      else if (step === VSL_AFTER_STEP){ showVsl(); }
       else { showLoader(); }
     }, 260);
+  }
+
+  function unlockVslContinue(){
+    vslWatched = true;
+    var btn = d.getElementById('vslContinue');
+    if (btn) btn.disabled = false;
+  }
+
+  function showVsl(){
+    showingVsl = true;
+    vslWatched = false;
+    maxVslTime = 0;
+    if (vslUnlockTimer){ clearTimeout(vslUnlockTimer); vslUnlockTimer = null; }
+    setScreen('vsl');
+    backBtn.style.display = 'none';
+    setProgress(((VSL_AFTER_STEP + 1) / TOTAL) * 100, 'Assista ao vídeo');
+    var video = d.getElementById('vslVideo');
+    var btn = d.getElementById('vslContinue');
+    if (btn) btn.disabled = true;
+    if (video){
+      video.currentTime = 0;
+      video.play().catch(function(){});
+    }
+    vslUnlockTimer = setTimeout(unlockVslContinue, VSL_UNLOCK_MS);
+  }
+
+  function continueFromVsl(){
+    if (!vslWatched) return;
+    if (vslUnlockTimer){ clearTimeout(vslUnlockTimer); vslUnlockTimer = null; }
+    showingVsl = false;
+    var video = d.getElementById('vslVideo');
+    if (video) video.pause();
+    step = VSL_AFTER_STEP + 1;
+    setScreen('quiz');
+    renderQuestion(step);
+  }
+
+  function setupVslVideo(){
+    var video = d.getElementById('vslVideo');
+    var btn = d.getElementById('vslContinue');
+    if (!video || !btn) return;
+
+    video.addEventListener('timeupdate', function(){
+      if (video.currentTime > maxVslTime + 0.35){
+        video.currentTime = maxVslTime;
+        return;
+      }
+      if (!video.paused && !video.ended) maxVslTime = Math.max(maxVslTime, video.currentTime);
+    });
+
+    video.addEventListener('seeking', function(){
+      if (video.currentTime > maxVslTime + 0.25) video.currentTime = maxVslTime;
+    });
   }
 
   function setScreen(name){
@@ -384,8 +465,17 @@ src="https://www.facebook.com/tr?id=1828429301469089&ev=PageView&noscript=1"/></
 
   backBtn.addEventListener('click', function(){
     if (locked) return;
+    if (showingVsl) return;
+    if (step === VSL_AFTER_STEP + 1){
+      step = VSL_AFTER_STEP;
+      showVsl();
+      return;
+    }
     if (step > 0){ step--; renderQuestion(step); }
   });
+
+  setupVslVideo();
+  d.getElementById('vslContinue').addEventListener('click', continueFromVsl);
 
   // início
   renderQuestion(0);
